@@ -12,6 +12,7 @@ request.
 ## Features
 
 - Supports common HTTP methods on `/`.
+- Shows a browser-friendly dashboard when `/` is opened in a web browser.
 - Provides a dedicated `/health` endpoint for liveness checks.
 - Supports an optional `serverInfo=true` query parameter.
 - Returns server/container metadata to identify the responding backend.
@@ -48,6 +49,20 @@ Example response:
   "message": "Hello World",
   "method": "GET"
 }
+```
+
+Open the same URL in a browser to view a dashboard with server metadata and the
+live JSON payload:
+
+```text
+http://localhost:8080/
+```
+
+To explicitly request JSON from clients that normally prefer HTML, send an
+`Accept: application/json` header:
+
+```bash
+curl -H "Accept: application/json" http://localhost:8080/
 ```
 
 ### Health Endpoint
@@ -194,19 +209,31 @@ In Docker Hub, create a repository named `python-hello-server-info` under the
 `patelnwd` account and set the visibility to public if you want anyone to be
 able to pull it.
 
-Log in to Docker Hub:
+Step 1: Build the local image:
 
 ```bash
-docker login
+docker build -t python-hello-server-info .
 ```
 
-Tag the local image with your Docker Hub repository name:
+Step 2: Confirm the image was created:
+
+```bash
+docker images python-hello-server-info
+```
+
+Step 3: Tag the local image with the Docker Hub repository name:
 
 ```bash
 docker tag python-hello-server-info patelnwd/python-hello-server-info:latest
 ```
 
-Push the image:
+Step 4: Log in to Docker Hub:
+
+```bash
+docker login
+```
+
+Step 5: Push the image:
 
 ```bash
 docker push patelnwd/python-hello-server-info:latest
