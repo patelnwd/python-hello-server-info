@@ -1,0 +1,69 @@
+{
+  "editor.formatOnSave": true,
+  "editor.rulers": [
+    88
+  ],
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    ".venv": true
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.autoImportCompletions": true,
+  "python.terminal.activateEnvironment": true,
+  "cSpell.language": "en",
+  "cSpell.enabledLanguageIds": [
+    "markdown",
+    "python",
+    "toml"
+  ],
+  "cSpell.ignorePaths": [
+    ".venv",
+    "uv.lock"
+  ],
+  "cSpell.words": [
+    "ALB",
+    "appinfo",
+    "backend",
+    "clientHost",
+    "containerId",
+    "debugging",
+    "Docker",
+    "Dockerfile",
+    "dockerhub",
+    "Dockerhub",
+    "EC2",
+    "FastAPI",
+    "gethostbyname",
+    "getpid",
+    "healthcheck",
+    "ingress",
+    "ipAddress",
+    "isoformat",
+    "Kubernetes",
+    "liveness",
+    "loadbalanced",
+    "localhost",
+    "NLB",
+    "OpenTelemetry",
+    "pods",
+    "pyproject",
+    "pythonVersion",
+    "readiness",
+    "Ruff",
+    "serverInfo",
+    "serverTimeUtc",
+    "TOML",
+    "uv",
+    "Uvicorn",
+    "uvicorn",
+    "xForwardedFor",
+    "xForwardedPort",
+    "xForwardedProto"
+  ]
+}

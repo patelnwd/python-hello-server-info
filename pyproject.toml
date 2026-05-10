@@ -1,0 +1,12 @@
+[project]
+name = "python-hello-server-info"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]"
+]
+
+[tool.uv]
+package = false
