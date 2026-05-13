@@ -203,6 +203,12 @@ The app loads `.env` automatically when the file exists. `APP_HOST`, `APP_PORT`,
 and `DATABASE_CONNECT_TIMEOUT` are required. If any of them are missing or
 invalid, startup fails with a clear error.
 
+For local setup, copy the template and then edit values as needed:
+
+```bash
+cp .env.example .env
+```
+
 Test it:
 
 ```bash
@@ -298,7 +304,20 @@ in to ECR, builds the image, and pushes both tags:
 <aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>:latest
 ```
 
-Configure your registry and repository with environment variables:
+Configure your registry and repository in `.env`:
+
+```env
+AWS_REGION=us-east-1
+ECR_REGISTRY=<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com
+ECR_REPOSITORY=<namespace>/<image-name>
+```
+
+The release script uses public-safe placeholder values by default. Real
+publishing fails until `ECR_REGISTRY` and `ECR_REPOSITORY` are configured, so
+private account details are not committed to the repository.
+
+The release script loads `.env` automatically. You can also provide the same
+values as shell environment variables:
 
 ```bash
 export AWS_REGION=us-east-1
@@ -325,6 +344,9 @@ To preview the commands without changing files, building, or pushing:
 ```bash
 uv run python scripts/release_image.py patch --dry-run
 ```
+
+Console output uses ANSI colors by default. Set `NO_COLOR=1` for plain output,
+or `FORCE_COLOR=1` to force colors in environments that disable them.
 
 After publishing, update your AWS deployment to use the versioned image tag.
 `latest` is also updated for convenience, but the versioned tag is safer for

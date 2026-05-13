@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -10,10 +11,44 @@ DEFAULT_REGION = "us-east-1"
 DEFAULT_REGISTRY = "000000000000.dkr.ecr.us-east-1.amazonaws.com"
 DEFAULT_REPOSITORY = "example/demo-app"
 PYPROJECT = Path("pyproject.toml")
+ENV_FILE = Path(".env")
+COLORS = {
+    "bold": "\033[1m",
+    "red": "\033[31m",
+    "green": "\033[32m",
+    "yellow": "\033[33m",
+    "cyan": "\033[36m",
+    "reset": "\033[0m",
+}
+
+
+def colorize(text, color):
+    if os.environ.get("NO_COLOR") and not os.environ.get("FORCE_COLOR"):
+        return text
+
+    return f"{COLORS[color]}{text}{COLORS['reset']}"
+
+
+def load_dotenv(path=ENV_FILE):
+    if not path.is_file():
+        return
+
+    for line in path.read_text().splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+
+        if key:
+            os.environ.setdefault(key, value)
 
 
 def run(command, *, input_text=None, dry_run=False):
-    print("+ " + " ".join(command))
+    print(colorize("+ " + " ".join(command), "cyan"))
 
     if dry_run:
         return ""
@@ -71,7 +106,7 @@ def write_project_version(version, *, dry_run=False):
         raise RuntimeError("Could not update project version in pyproject.toml")
 
     if dry_run:
-        print(f"Would update pyproject.toml version to {version}")
+        print(colorize(f"Would update pyproject.toml version to {version}", "yellow"))
         return
 
     PYPROJECT.write_text(updated)
@@ -79,7 +114,12 @@ def write_project_version(version, *, dry_run=False):
 
 def ecr_login(region, registry, *, dry_run=False):
     if dry_run:
-        print(f"+ aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {registry}")
+        print(
+            colorize(
+                f"+ aws ecr get-login-password --region {region} | docker login --username AWS --password-stdin {registry}",
+                "cyan",
+            )
+        )
         return
 
     password = run(["aws", "ecr", "get-login-password", "--region", region])
@@ -89,7 +129,62 @@ def ecr_login(region, registry, *, dry_run=False):
     )
 
 
+def print_publish_config_help(errors):
+    lines = [
+        colorize("Release configuration is incomplete.", "red"),
+        "",
+        colorize("Fix:", "bold"),
+        "  1. Configure ECR settings in .env before publishing.",
+        "  2. You can also pass them as shell environment variables or CLI flags.",
+        "",
+        colorize(".env setup:", "bold"),
+        colorize("  AWS_REGION=us-east-1", "green"),
+        colorize(
+            "  ECR_REGISTRY=<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com",
+            "green",
+        ),
+        colorize("  ECR_REPOSITORY=<namespace>/<image-name>", "green"),
+        "",
+        colorize("Or pass flags:", "bold"),
+        colorize("  uv run python scripts/release_image.py patch \\", "cyan"),
+        colorize(
+            "    --registry <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com \\",
+            "cyan",
+        ),
+        colorize("    --repository <namespace>/<image-name>", "cyan"),
+        "",
+        colorize("Problems found:", "bold"),
+        *[colorize(f"  - {error}", "red") for error in errors],
+        "",
+        colorize("Preview without publishing:", "bold"),
+        colorize("  uv run python scripts/release_image.py patch --dry-run", "cyan"),
+        "",
+    ]
+
+    print("\n".join(lines), file=sys.stderr)
+
+
+def validate_publish_config(args):
+    errors = []
+
+    if args.registry == DEFAULT_REGISTRY:
+        errors.append("ECR registry is still using the public template value")
+
+    if args.repository == DEFAULT_REPOSITORY:
+        errors.append("ECR repository is still using the public template value")
+
+    if errors:
+        print_publish_config_help(errors)
+        raise SystemExit(
+            colorize(
+                "Release failed: missing ECR registry/repository configuration", "red"
+            )
+        )
+
+
 def main():
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="Bump the app version, build the Docker image, and push version/latest tags to ECR."
     )
@@ -111,12 +206,8 @@ def main():
     next_version = args.version or bump_version(current_version, args.release)
     parse_version(next_version)
 
-    if not args.dry_run and (
-        args.registry == DEFAULT_REGISTRY or args.repository == DEFAULT_REPOSITORY
-    ):
-        raise RuntimeError(
-            "Set --registry and --repository, or ECR_REGISTRY and ECR_REPOSITORY, before publishing."
-        )
+    if not args.dry_run:
+        validate_publish_config(args)
 
     if next_version != current_version:
         write_project_version(next_version, dry_run=args.dry_run)
@@ -140,8 +231,8 @@ def main():
         run(["docker", "push", remote_version_tag], dry_run=args.dry_run)
         run(["docker", "push", remote_latest_tag], dry_run=args.dry_run)
 
-    print(f"Released {remote_version_tag}")
-    print(f"Updated latest tag {remote_latest_tag}")
+    print(colorize(f"Released {remote_version_tag}", "green"))
+    print(colorize(f"Updated latest tag {remote_latest_tag}", "green"))
 
 
 if __name__ == "__main__":

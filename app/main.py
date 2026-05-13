@@ -2,6 +2,7 @@ import os
 import socket
 import platform
 import json
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,23 @@ REQUIRED_ENV_VARS = (
     "APP_PORT",
     "DATABASE_CONNECT_TIMEOUT",
 )
+
+ENV_TEMPLATE = ".env.example"
+COLORS = {
+    "bold": "\033[1m",
+    "red": "\033[31m",
+    "green": "\033[32m",
+    "yellow": "\033[33m",
+    "cyan": "\033[36m",
+    "reset": "\033[0m",
+}
+
+
+def colorize(text: str, color: str) -> str:
+    if os.environ.get("NO_COLOR") and not os.environ.get("FORCE_COLOR"):
+        return text
+
+    return f"{COLORS[color]}{text}{COLORS['reset']}"
 
 
 def load_dotenv(path: str = ".env") -> None:
@@ -44,12 +62,64 @@ def get_required_env(name: str) -> str:
     return value
 
 
-def validate_required_env() -> None:
-    for name in REQUIRED_ENV_VARS:
-        get_required_env(name)
+def print_env_validation_help(errors: list[str]) -> None:
+    lines = [
+        colorize("Environment configuration is incomplete.", "red"),
+        "",
+        colorize("Fix:", "bold"),
+        f"  1. Copy {ENV_TEMPLATE} to .env for local runs.",
+        "  2. Fill all required values in .env or pass them as runtime environment variables.",
+        "  3. For Docker, pass values with --env-file .env or -e KEY=value.",
+        "",
+        colorize("Required values:", "bold"),
+        colorize("  APP_HOST=0.0.0.0", "green"),
+        colorize("  APP_PORT=8002", "green"),
+        colorize("  DATABASE_CONNECT_TIMEOUT=5", "green"),
+        "",
+        colorize("Problems found:", "bold"),
+        *[colorize(f"  - {error}", "red") for error in errors],
+        "",
+        colorize("Example:", "bold"),
+        colorize("  cp .env.example .env", "cyan"),
+        colorize("  uv run python -m app.main", "cyan"),
+        "",
+    ]
 
-    get_app_port()
-    get_database_connect_timeout()
+    print("\n".join(lines), file=sys.stderr)
+
+
+def validate_required_env() -> None:
+    errors = []
+
+    for name in REQUIRED_ENV_VARS:
+        if not os.environ.get(name, "").strip():
+            errors.append(f"{name} is required")
+
+    raw_port = os.environ.get("APP_PORT", "").strip()
+    if raw_port:
+        try:
+            port = int(raw_port)
+            if not 1 <= port <= 65535:
+                errors.append("APP_PORT must be between 1 and 65535")
+        except ValueError:
+            errors.append(f"APP_PORT must be an integer, got {raw_port!r}")
+
+    raw_timeout = os.environ.get("DATABASE_CONNECT_TIMEOUT", "").strip()
+    if raw_timeout:
+        try:
+            timeout = float(raw_timeout)
+            if timeout <= 0:
+                errors.append("DATABASE_CONNECT_TIMEOUT must be greater than 0")
+        except ValueError:
+            errors.append(
+                f"DATABASE_CONNECT_TIMEOUT must be a number, got {raw_timeout!r}"
+            )
+
+    if errors:
+        print_env_validation_help(errors)
+        raise SystemExit(
+            colorize("Startup failed: invalid environment configuration", "red")
+        )
 
 
 def get_app_host() -> str:
@@ -60,20 +130,30 @@ def get_app_port() -> int:
     raw_port = get_required_env("APP_PORT")
 
     try:
-        return int(raw_port)
+        port = int(raw_port)
     except ValueError as exc:
         raise ValueError(f"APP_PORT must be an integer, got {raw_port!r}") from exc
+
+    if not 1 <= port <= 65535:
+        raise ValueError("APP_PORT must be between 1 and 65535")
+
+    return port
 
 
 def get_database_connect_timeout() -> float:
     raw_timeout = get_required_env("DATABASE_CONNECT_TIMEOUT")
 
     try:
-        return float(raw_timeout)
+        timeout = float(raw_timeout)
     except ValueError as exc:
         raise ValueError(
             f"DATABASE_CONNECT_TIMEOUT must be a number, got {raw_timeout!r}"
         ) from exc
+
+    if timeout <= 0:
+        raise ValueError("DATABASE_CONNECT_TIMEOUT must be greater than 0")
+
+    return timeout
 
 
 def check_database_connectivity():
