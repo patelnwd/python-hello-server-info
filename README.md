@@ -39,7 +39,7 @@ Supported methods:
 Example request:
 
 ```bash
-curl http://localhost:8080/
+curl http://localhost:8002/
 ```
 
 Example response:
@@ -55,14 +55,14 @@ Open the same URL in a browser to view a dashboard with server metadata and the
 live JSON payload:
 
 ```text
-http://localhost:8080/
+http://localhost:8002/
 ```
 
 To explicitly request JSON from clients that normally prefer HTML, send an
 `Accept: application/json` header:
 
 ```bash
-curl -H "Accept: application/json" http://localhost:8080/
+curl -H "Accept: application/json" http://localhost:8002/
 ```
 
 ### Health Endpoint
@@ -72,7 +72,7 @@ Endpoint: `/health`
 Example request:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8002/health
 ```
 
 Example response:
@@ -86,15 +86,52 @@ Example response:
 The `/health` endpoint can also include server metadata:
 
 ```bash
-curl "http://localhost:8080/health?serverInfo=true"
+curl "http://localhost:8002/health?serverInfo=true"
 ```
+
+### Database Health Endpoint
+
+Set `POSTGRES_URI` to enable a PostgreSQL connectivity check:
+
+```env
+POSTGRES_URI=postgresql://user:password@hostname:5432/database
+```
+
+Check database connectivity directly:
+
+```bash
+curl "http://localhost:8002/health/database"
+```
+
+Or include it in the main health response:
+
+```bash
+curl "http://localhost:8002/health?database=true"
+```
+
+When the database is reachable, the response includes:
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "configured": true,
+    "connected": true,
+    "latencyMs": 12.34
+  }
+}
+```
+
+If `POSTGRES_URI` is missing or the connection fails, the database health check
+returns `503` with an `unhealthy` status. The response never includes the
+Postgres URI.
 
 ## Server Info Mode
 
 Add `serverInfo=true` to include details about the backend handling the request:
 
 ```bash
-curl "http://localhost:8080/?serverInfo=true"
+curl "http://localhost:8002/?serverInfo=true"
 ```
 
 Example response:
@@ -113,7 +150,7 @@ Example response:
     "serverTimeUtc": "2026-05-10T10:00:00+00:00",
     "clientHost": "client-ip",
     "headers": {
-      "host": "localhost:8080",
+      "host": "localhost:8002",
       "xForwardedFor": "...",
       "xForwardedProto": "...",
       "xForwardedPort": "..."
@@ -137,7 +174,7 @@ When `serverInfo=true` is passed with a `HEAD` request, the app returns selected
 metadata through response headers:
 
 ```bash
-curl -I "http://localhost:8080/?serverInfo=true"
+curl -I "http://localhost:8002/?serverInfo=true"
 ```
 
 Example headers:
@@ -159,15 +196,19 @@ uv sync
 Start the app:
 
 ```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8080
+uv run python -m app.main
 ```
+
+The app loads `.env` automatically when the file exists. `APP_HOST`, `APP_PORT`,
+and `DATABASE_CONNECT_TIMEOUT` are required. If any of them are missing or
+invalid, startup fails with a clear error.
 
 Test it:
 
 ```bash
-curl http://localhost:8080/
-curl "http://localhost:8080/?serverInfo=true"
-curl http://localhost:8080/health
+curl http://localhost:8002/
+curl "http://localhost:8002/?serverInfo=true"
+curl http://localhost:8002/health
 ```
 
 ## Build the First Docker Image
@@ -187,80 +228,127 @@ docker images python-hello-server-info
 Run the image locally:
 
 ```bash
-docker run --rm -p 8080:8080 python-hello-server-info
+docker run --rm --env-file .env -p 8002:8002 python-hello-server-info
 ```
+
+If you change `APP_PORT` in `.env`, publish the same container port in the
+Docker run command. For example, `APP_PORT=9000` should use `-p 9000:9000`.
 
 In another terminal, test the running container:
 
 ```bash
-curl http://localhost:8080/
-curl http://localhost:8080/health
-curl "http://localhost:8080/?serverInfo=true"
+curl http://localhost:8002/
+curl http://localhost:8002/health
+curl "http://localhost:8002/?serverInfo=true"
 ```
 
 Stop the container with `Ctrl+C` when you are done testing.
 
-## Publish Image to Docker Hub
+## Publish Image to AWS ECR
 
-This project uses the Docker Hub image name
-`patelnwd/python-hello-server-info`.
+This project can publish to a private AWS ECR repository such as
+`<aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>`.
 
-In Docker Hub, create a repository named `python-hello-server-info` under the
-`patelnwd` account and set the visibility to public if you want anyone to be
-able to pull it.
+Use the release helper to keep incremental version tags and update `latest` at
+the same time.
 
-Step 1: Build the local image:
+Choose the release type based on the impact of the change. The project uses
+semantic versioning: `MAJOR.MINOR.PATCH`.
+
+Patch release:
+
+Use this for small, backward-compatible fixes. Examples include bug fixes,
+documentation updates, dependency patch updates, or small internal cleanup.
+
+If the current version is `1.0.0`, this publishes `1.0.1` and updates `latest`.
 
 ```bash
-docker build -t python-hello-server-info .
+uv run python scripts/release_image.py patch
 ```
 
-Step 2: Confirm the image was created:
+Minor release:
+
+Use this when adding backward-compatible functionality. Examples include new
+endpoints, new optional environment variables, or new response fields that do
+not break existing clients.
+
+If the current version is `1.0.1`, this publishes `1.1.0` and updates `latest`.
 
 ```bash
-docker images python-hello-server-info
+uv run python scripts/release_image.py minor
 ```
 
-Step 3: Tag the local image with the Docker Hub repository name:
+Major release:
+
+Use this for breaking changes. Examples include removing endpoints, changing
+required environment variables, changing response formats, or changing runtime
+behavior in a way existing deployments must account for.
+
+If the current version is `1.1.0`, this publishes `2.0.0` and updates `latest`.
 
 ```bash
-docker tag python-hello-server-info patelnwd/python-hello-server-info:latest
+uv run python scripts/release_image.py major
 ```
 
-Step 4: Log in to Docker Hub:
+The script reads the current version from `pyproject.toml`, increments it, logs
+in to ECR, builds the image, and pushes both tags:
 
-```bash
-docker login
+```text
+<aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>:<version>
+<aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>:latest
 ```
 
-Step 5: Push the image:
+Configure your registry and repository with environment variables:
 
 ```bash
-docker push patelnwd/python-hello-server-info:latest
+export AWS_REGION=us-east-1
+export ECR_REGISTRY=<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com
+export ECR_REPOSITORY=<namespace>/<image-name>
 ```
 
-After the push completes, the image can be pulled publicly if the Docker Hub
-repository visibility is set to public.
-
-## Run the Public Docker Image
-
-Pull the public image:
+Or pass them directly:
 
 ```bash
-docker pull patelnwd/python-hello-server-info:latest
+uv run python scripts/release_image.py patch \
+  --registry <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com \
+  --repository <namespace>/<image-name>
+```
+
+To publish a specific version:
+
+```bash
+uv run python scripts/release_image.py current --version 1.2.3
+```
+
+To preview the commands without changing files, building, or pushing:
+
+```bash
+uv run python scripts/release_image.py patch --dry-run
+```
+
+After publishing, update your AWS deployment to use the versioned image tag.
+`latest` is also updated for convenience, but the versioned tag is safer for
+repeatable deployments.
+
+## Run the ECR Docker Image
+
+Pull the ECR image:
+
+```bash
+docker pull <aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>:latest
 ```
 
 Run it:
 
 ```bash
-docker run --rm -p 8080:8080 patelnwd/python-hello-server-info:latest
+docker run --rm --env-file .env -p 8002:8002 <aws-account-id>.dkr.ecr.<region>.amazonaws.com/<namespace>/<image-name>:latest
 ```
 
 Test it:
 
 ```bash
-curl http://localhost:8080/
-curl "http://localhost:8080/?serverInfo=true"
+curl http://localhost:8002/
+curl "http://localhost:8002/?serverInfo=true"
 ```
 
 ## ALB / EC2 Testing
@@ -297,6 +385,8 @@ The `/health` endpoint can be used as the ALB target group health check path:
 .
 |-- app/
 |   `-- main.py
+|-- scripts/
+|   `-- release_image.py
 |-- .vscode/
 |   |-- extensions.json
 |   |-- launch.json

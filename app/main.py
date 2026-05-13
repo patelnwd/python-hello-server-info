@@ -2,12 +2,117 @@ import os
 import socket
 import platform
 import json
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-app = FastAPI()
+REQUIRED_ENV_VARS = (
+    "APP_HOST",
+    "APP_PORT",
+    "DATABASE_CONNECT_TIMEOUT",
+)
+
+
+def load_dotenv(path: str = ".env") -> None:
+    env_path = Path(path)
+    if not env_path.is_file():
+        return
+
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def get_required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+
+    if not value:
+        raise RuntimeError(f"{name} must be configured in environment or .env")
+
+    return value
+
+
+def validate_required_env() -> None:
+    for name in REQUIRED_ENV_VARS:
+        get_required_env(name)
+
+    get_app_port()
+    get_database_connect_timeout()
+
+
+def get_app_host() -> str:
+    return get_required_env("APP_HOST")
+
+
+def get_app_port() -> int:
+    raw_port = get_required_env("APP_PORT")
+
+    try:
+        return int(raw_port)
+    except ValueError as exc:
+        raise ValueError(f"APP_PORT must be an integer, got {raw_port!r}") from exc
+
+
+def get_database_connect_timeout() -> float:
+    raw_timeout = get_required_env("DATABASE_CONNECT_TIMEOUT")
+
+    try:
+        return float(raw_timeout)
+    except ValueError as exc:
+        raise ValueError(
+            f"DATABASE_CONNECT_TIMEOUT must be a number, got {raw_timeout!r}"
+        ) from exc
+
+
+def check_database_connectivity():
+    postgres_uri = os.environ.get("POSTGRES_URI", "").strip()
+    result = {
+        "configured": bool(postgres_uri),
+        "connected": False,
+    }
+
+    if not postgres_uri:
+        result["message"] = "POSTGRES_URI is not set"
+        return result
+
+    started_at = time.monotonic()
+
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            postgres_uri,
+            connect_timeout=get_database_connect_timeout(),
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+
+        result["connected"] = True
+        result["latencyMs"] = round((time.monotonic() - started_at) * 1000, 2)
+    except Exception as exc:
+        result["error"] = str(exc)
+        result["latencyMs"] = round((time.monotonic() - started_at) * 1000, 2)
+
+    return result
+
+
+load_dotenv()
+validate_required_env()
+
+app = FastAPI(title=os.environ.get("APP_NAME", "Python Hello Server Info"))
 
 
 def get_server_info(request: Request):
@@ -19,6 +124,12 @@ def get_server_info(request: Request):
         ip = None
 
     return {
+        "appName": os.environ.get("APP_NAME"),
+        "appEnv": os.environ.get("APP_ENV"),
+        "appMode": os.environ.get("APP_MODE"),
+        "appHost": get_app_host(),
+        "appPort": get_app_port(),
+        "databaseConfigured": bool(os.environ.get("POSTGRES_URI", "").strip()),
         "hostname": hostname,
         "containerId": os.environ.get("HOSTNAME"),
         "ipAddress": ip,
@@ -461,10 +572,45 @@ async def root(request: Request, serverInfo: bool = Query(False)):
 
 
 @app.get("/health")
-async def health(request: Request, serverInfo: bool = Query(False)):
+async def health(
+    request: Request,
+    serverInfo: bool = Query(False),
+    database: bool = Query(False),
+):
     data = {"status": "healthy"}
+    status_code = 200
 
     if serverInfo:
         data["serverInfo"] = get_server_info(request)
 
-    return data
+    if database:
+        data["database"] = check_database_connectivity()
+        if not data["database"]["connected"]:
+            data["status"] = "unhealthy"
+            status_code = 503
+
+    return JSONResponse(content=data, status_code=status_code)
+
+
+@app.get("/health/database")
+async def database_health():
+    database_status = check_database_connectivity()
+    status_code = 200 if database_status["connected"] else 503
+
+    return JSONResponse(
+        content={
+            "status": "healthy" if database_status["connected"] else "unhealthy",
+            "database": database_status,
+        },
+        status_code=status_code,
+    )
+
+
+def run() -> None:
+    import uvicorn
+
+    uvicorn.run(app, host=get_app_host(), port=get_app_port())
+
+
+if __name__ == "__main__":
+    run()

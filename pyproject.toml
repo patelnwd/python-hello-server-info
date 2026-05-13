@@ -3,10 +3,7 @@ name = "python-hello-server-info"
 version = "1.0.0"
 requires-python = ">=3.12"
 
-dependencies = [
-    "fastapi",
-    "uvicorn[standard]"
-]
+dependencies = ["fastapi", "psycopg[binary]>=3.3.4", "uvicorn[standard]"]
 
 [tool.uv]
 package = false
